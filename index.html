@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📚 Local Family Events - Tracy Area</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { opacity: 0.9; font-size: 1.1em; }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            text-align: center;
+            padding: 15px;
+            min-width: 150px;
+        }
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+        .content {
+            padding: 30px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        tr:hover { background-color: #f8f9fa; }
+        .event-link {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .event-link:hover {
+            text-decoration: underline;
+        }
+        .age-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+        }
+        h2 {
+            color: #333;
+            margin: 30px 0 20px 0;
+            font-size: 1.8em;
+            border-left: 4px solid #667eea;
+            padding-left: 15px;
+        }
+        .filter-container {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .filter-label {
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1em;
+        }
+        .filter-select {
+            padding: 10px 20px;
+            font-size: 1em;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            background: white;
+            color: #333;
+            cursor: pointer;
+            min-width: 250px;
+            transition: all 0.3s;
+        }
+        .filter-select:hover {
+            border-color: #764ba2;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+        .filter-select:focus {
+            outline: none;
+            border-color: #764ba2;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.8em; }
+            table { font-size: 0.9em; }
+            th, td { padding: 10px 8px; }
+            .filter-select { min-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 Local Family Events</h1>
+            <p>Libraries • Home Depot • KSB Skate • OMCA • Thrive City | Tracy • San Jose • Oakland • SF</p>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">14</div>
+                <div class="stat-label">Total Events</div>
+            </div>
+        </div>
+        
+        <div class="filter-container">
+            <label class="filter-label" for="locationFilter">📍 Filter by Location:</label>
+            <select id="locationFilter" class="filter-select" onchange="filterEvents()">
+                <option value="all">All Locations</option>
+                <option value="Tracy Branch Library">Tracy Branch Library</option>
+                <option value="Mountain House Branch Library">Mountain House Branch Library</option>
+                <option value="Manteca Branch Library">Manteca Branch Library</option>
+                <option value="Lathrop Branch Library">Lathrop Branch Library</option>
+                <option value="Home Depot Tracy">Home Depot Tracy</option>
+                <option value="Tracy Veterans Park">Tracy Veterans Park</option>
+                <option value="Oakland Museum of CA">Oakland Museum of CA</option>
+                <option value="Thrive City">Thrive City (SF)</option>
+            </select>
+            
+            <label class="filter-label" for="dateFilter" style="margin-left: 20px;">📅 Filter by Date:</label>
+            <select id="dateFilter" class="filter-select" onchange="filterEvents()">
+                <option value="all">All Dates</option>
+                <option value="today">Today</option>
+                <option value="tomorrow">Tomorrow</option>
+                <option value="this-week">This Week</option>
+                <option value="next-week">Next Week</option>
+                <option value="this-month">This Month</option>
+                <option value="next-month">Next Month</option>
+            </select>
+        </div>
+        
+        <div class="content">
+            <h2>📅 All Events</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Day</th>
+                        <th>Time</th>
+                        <th>Location</th>
+                        <th>Event</th>
+                        <th>Category</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr data-location="Home Depot Tracy" data-date="Jan 3">
+                        <td>Jan 3</td>
+                        <td>Sat</td>
+                        <td>9:00 AM - 10:00 AM</td>
+                        <td>Home Depot Tracy</td>
+                        <td><a href="https://www.homedepot.com/workshops/kids-workshops" target="_blank" class="event-link">Kids Workshop - Free DIY Project</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Oakland Museum of CA" data-date="Jan 4">
+                        <td>Jan 4</td>
+                        <td>Sun</td>
+                        <td>10:00 AM - 5:00 PM</td>
+                        <td>Oakland Museum of CA</td>
+                        <td><a href="https://museumca.org/visit" target="_blank" class="event-link">First Sunday Free Admission</a></td>
+                        <td><span class="age-badge">All Ages</span></td>
+                    </tr>
+
+                    <tr data-location="Tracy Veterans Park" data-date="Jan 4">
+                        <td>Jan 4</td>
+                        <td>Sun</td>
+                        <td>3:00 PM - 4:00 PM</td>
+                        <td>Tracy Veterans Park</td>
+                        <td><a href="https://www.ksbskatedojo.com/" target="_blank" class="event-link">aariv Sawhney - KSB Skate Session</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Tracy Veterans Park" data-date="Jan 11">
+                        <td>Jan 11</td>
+                        <td>Sun</td>
+                        <td>3:00 PM - 4:00 PM</td>
+                        <td>Tracy Veterans Park</td>
+                        <td><a href="https://www.ksbskatedojo.com/" target="_blank" class="event-link">aariv Sawhney - KSB Skate Session</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Tracy Veterans Park" data-date="Jan 18">
+                        <td>Jan 18</td>
+                        <td>Sun</td>
+                        <td>3:00 PM - 4:00 PM</td>
+                        <td>Tracy Veterans Park</td>
+                        <td><a href="https://www.ksbskatedojo.com/" target="_blank" class="event-link">aariv Sawhney - KSB Skate Session</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Tracy Veterans Park" data-date="Jan 25">
+                        <td>Jan 25</td>
+                        <td>Sun</td>
+                        <td>3:00 PM - 4:00 PM</td>
+                        <td>Tracy Veterans Park</td>
+                        <td><a href="https://www.ksbskatedojo.com/" target="_blank" class="event-link">aariv Sawhney - KSB Skate Session</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Oakland Museum of CA" data-date="Feb 1">
+                        <td>Feb 1</td>
+                        <td>Sun</td>
+                        <td>10:00 AM - 5:00 PM</td>
+                        <td>Oakland Museum of CA</td>
+                        <td><a href="https://museumca.org/visit" target="_blank" class="event-link">First Sunday Free Admission</a></td>
+                        <td><span class="age-badge">All Ages</span></td>
+                    </tr>
+
+                    <tr data-location="Home Depot Tracy" data-date="Feb 7">
+                        <td>Feb 7</td>
+                        <td>Sat</td>
+                        <td>9:00 AM - 10:00 AM</td>
+                        <td>Home Depot Tracy</td>
+                        <td><a href="https://www.homedepot.com/workshops/kids-workshops" target="_blank" class="event-link">Kids Workshop - Free DIY Project</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Oakland Museum of CA" data-date="Mar 1">
+                        <td>Mar 1</td>
+                        <td>Sun</td>
+                        <td>10:00 AM - 5:00 PM</td>
+                        <td>Oakland Museum of CA</td>
+                        <td><a href="https://museumca.org/visit" target="_blank" class="event-link">First Sunday Free Admission</a></td>
+                        <td><span class="age-badge">All Ages</span></td>
+                    </tr>
+
+                    <tr data-location="Home Depot Tracy" data-date="Mar 7">
+                        <td>Mar 7</td>
+                        <td>Sat</td>
+                        <td>9:00 AM - 10:00 AM</td>
+                        <td>Home Depot Tracy</td>
+                        <td><a href="https://www.homedepot.com/workshops/kids-workshops" target="_blank" class="event-link">Kids Workshop - Free DIY Project</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Home Depot Tracy" data-date="Apr 4">
+                        <td>Apr 4</td>
+                        <td>Sat</td>
+                        <td>9:00 AM - 10:00 AM</td>
+                        <td>Home Depot Tracy</td>
+                        <td><a href="https://www.homedepot.com/workshops/kids-workshops" target="_blank" class="event-link">Kids Workshop - Free DIY Project</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Oakland Museum of CA" data-date="Apr 5">
+                        <td>Apr 5</td>
+                        <td>Sun</td>
+                        <td>10:00 AM - 5:00 PM</td>
+                        <td>Oakland Museum of CA</td>
+                        <td><a href="https://museumca.org/visit" target="_blank" class="event-link">First Sunday Free Admission</a></td>
+                        <td><span class="age-badge">All Ages</span></td>
+                    </tr>
+
+                    <tr data-location="Home Depot Tracy" data-date="May 2">
+                        <td>May 2</td>
+                        <td>Sat</td>
+                        <td>9:00 AM - 10:00 AM</td>
+                        <td>Home Depot Tracy</td>
+                        <td><a href="https://www.homedepot.com/workshops/kids-workshops" target="_blank" class="event-link">Kids Workshop - Free DIY Project</a></td>
+                        <td><span class="age-badge">Children</span></td>
+                    </tr>
+
+                    <tr data-location="Oakland Museum of CA" data-date="May 3">
+                        <td>May 3</td>
+                        <td>Sun</td>
+                        <td>10:00 AM - 5:00 PM</td>
+                        <td>Oakland Museum of CA</td>
+                        <td><a href="https://museumca.org/visit" target="_blank" class="event-link">First Sunday Free Admission</a></td>
+                        <td><span class="age-badge">All Ages</span></td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <p>Last updated: December 27, 2025 at 08:40 PM PST</p>
+            <p>Auto-updates daily • Data from library websites</p>
+        </div>
+    </div>
+    
+    <script>
+        function filterEvents() {
+            const locationFilter = document.getElementById('locationFilter').value;
+            const dateFilter = document.getElementById('dateFilter').value;
+            const rows = document.querySelectorAll('tbody tr');
+            
+            // Get current date info for date filtering
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            // Calculate week boundaries
+            const thisWeekStart = new Date(today);
+            const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
+            thisWeekStart.setDate(today.getDate() - dayOfWeek); // Start of this week (Sunday)
+            const thisWeekEnd = new Date(thisWeekStart);
+            thisWeekEnd.setDate(thisWeekStart.getDate() + 6); // End of this week (Saturday)
+            
+            const nextWeekStart = new Date(thisWeekEnd);
+            nextWeekStart.setDate(thisWeekEnd.getDate() + 1);
+            const nextWeekEnd = new Date(nextWeekStart);
+            nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
+            
+            // Calculate month boundaries
+            const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            
+            const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+            
+            let visibleCount = 0;
+            rows.forEach(row => {
+                const location = row.getAttribute('data-location');
+                const dateStr = row.getAttribute('data-date');
+                
+                // Location filter
+                const locationMatch = locationFilter === 'all' || location === locationFilter;
+                
+                // Date filter
+                let dateMatch = true;
+                if (dateFilter !== 'all' && dateStr) {
+                    const eventDate = parseDateString(dateStr);
+                    
+                    if (eventDate) {
+                        switch(dateFilter) {
+                            case 'today':
+                                dateMatch = eventDate.getTime() === today.getTime();
+                                break;
+                            case 'tomorrow':
+                                dateMatch = eventDate.getTime() === tomorrow.getTime();
+                                break;
+                            case 'this-week':
+                                dateMatch = eventDate >= thisWeekStart && eventDate <= thisWeekEnd;
+                                break;
+                            case 'next-week':
+                                dateMatch = eventDate >= nextWeekStart && eventDate <= nextWeekEnd;
+                                break;
+                            case 'this-month':
+                                dateMatch = eventDate >= thisMonthStart && eventDate <= thisMonthEnd;
+                                break;
+                            case 'next-month':
+                                dateMatch = eventDate >= nextMonthStart && eventDate <= nextMonthEnd;
+                                break;
+                        }
+                    }
+                }
+                
+                // Show row if both filters match
+                if (locationMatch && dateMatch) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            console.log(`Showing ${visibleCount} events`);
+        }
+        
+        function parseDateString(dateStr) {
+            // Parse "Dec 25" format to Date object
+            const months = {
+                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+                'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+            };
+            
+            const parts = dateStr.split(' ');
+            if (parts.length !== 2) return null;
+            
+            const month = months[parts[0]];
+            const day = parseInt(parts[1]);
+            
+            if (month === undefined || isNaN(day)) return null;
+            
+            // Determine year (Dec 2025, Jan-Nov 2026)
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            
+            let year;
+            if (month === 11) { // December
+                year = currentYear; // December 2025
+            } else { // Jan-Nov
+                year = currentYear + 1; // 2026
+            }
+            
+            return new Date(year, month, day);
+        }
+    </script>
+</body>
+</html>
