@@ -1,629 +1,761 @@
+#!/usr/bin/env python3
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import re
+import json
 
-def get_tracy_library_events():
-    """Scrape Tracy Branch Library events"""
-    events = []
+def scrape_ssjcpl_events(url, library_name):
+    """Scrape events from SSJCPL libraries - SIMPLE VERSION"""
     try:
-        url = "https://www.ssjcpl.org/events-services/events-calendar/tracy"
         response = requests.get(url, timeout=10)
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        for event_div in soup.find_all('div', class_='spl-component-event-list-item'):
-            try:
-                title_elem = event_div.find('h2')
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                link_elem = title_elem.find('a')
-                link = 'https://www.ssjcpl.org' + link_elem['href'] if link_elem and 'href' in link_elem.attrs else url
-                
-                date_elem = event_div.find('div', class_='date')
-                time_elem = event_div.find('div', class_='time')
-                category_elem = event_div.find('div', class_='category')
-                
-                date_str = date_elem.get_text(strip=True) if date_elem else 'TBD'
-                time_str = time_elem.get_text(strip=True) if time_elem else 'All day'
-                category = category_elem.get_text(strip=True) if category_elem else 'All Ages'
-                
-                events.append({
-                    'date': date_str,
-                    'time': time_str,
-                    'location': 'Tracy Branch Library',
-                    'title': title,
-                    'link': link,
-                    'category': category,
-                    'source': 'Library'
-                })
-            except Exception as e:
-                continue
-                
-    except Exception as e:
-        print(f"Error fetching Tracy Library events: {e}")
-    
-    return events
-
-def get_manteca_library_events():
-    """Scrape Manteca Branch Library events"""
-    events = []
-    try:
-        url = "https://www.ssjcpl.org/events-services/events-calendar/manteca-branch"
-        response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
+        events = []
+        event_links = soup.select('a[href*="/events-services/events-calendar/"]')
+        seen_urls = set()
         
-        for event_div in soup.find_all('div', class_='spl-component-event-list-item'):
-            try:
-                title_elem = event_div.find('h2')
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                link_elem = title_elem.find('a')
-                link = 'https://www.ssjcpl.org' + link_elem['href'] if link_elem and 'href' in link_elem.attrs else url
-                
-                date_elem = event_div.find('div', class_='date')
-                time_elem = event_div.find('div', class_='time')
-                category_elem = event_div.find('div', class_='category')
-                
-                date_str = date_elem.get_text(strip=True) if date_elem else 'TBD'
-                time_str = time_elem.get_text(strip=True) if time_elem else 'All day'
-                category = category_elem.get_text(strip=True) if category_elem else 'All Ages'
-                
-                events.append({
-                    'date': date_str,
-                    'time': time_str,
-                    'location': 'Manteca Branch Library',
-                    'title': title,
-                    'link': link,
-                    'category': category,
-                    'source': 'Library'
-                })
-            except Exception as e:
+        for link in event_links:
+            event_url = link.get('href')
+            full_url = f"https://www.ssjcpl.org{event_url}" if event_url.startswith('/') else event_url
+            
+            if full_url in seen_urls or 'id=' not in full_url:
                 continue
-                
-    except Exception as e:
-        print(f"Error fetching Manteca Library events: {e}")
-    
-    return events
-
-def get_mountain_house_library_events():
-    """Scrape Mountain House Branch Library events"""
-    events = []
-    try:
-        url = "https://www.ssjcpl.org/events-services/events-calendar/mountain-house"
-        response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
+            seen_urls.add(full_url)
+            
+            # Get the raw text which contains everything jumbled
+            raw_text = link.get_text(strip=True)
+            
+            if not raw_text or raw_text in ['View Event', 'VIEW ALL EVENTS', 'Events Calendar']:
+                continue
+            
+            # Extract title (everything before the date pattern)
+            title_match = re.match(r'^(.+?)(?=(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{1,2})', raw_text)
+            if title_match:
+                title = title_match.group(1).strip()
+            else:
+                title = raw_text[:50] if len(raw_text) > 50 else raw_text
+            
+            # Extract date and day (pattern like "Dec25Thu" or "Jan1Fri")
+            date = "TBD"
+            day = ""
+            date_match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(\d{1,2})(Mon|Tue|Wed|Thu|Fri|Sat|Sun)', raw_text)
+            if date_match:
+                month = date_match.group(1)
+                day_num = date_match.group(2)
+                day_abbr = date_match.group(3)
+                date = f"{month} {day_num}"
+                day = day_abbr
+            
+            # Extract time (look for "Time: HH:MM AM/PM - HH:MM AM/PM" pattern)
+            time = "All day"  # Default
+            time_match = re.search(r'Time:\s*(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM))', raw_text, re.IGNORECASE)
+            if time_match:
+                time = time_match.group(1).strip()
+            
+            # Extract category/age group (text after "View Event")
+            category = "All Ages"  # Default
+            if "View Event" in raw_text:
+                # Get everything after "View Event"
+                parts = raw_text.split("View Event")
+                if len(parts) > 1:
+                    after_view = parts[-1].strip()
+                    # Remove any trailing characters and clean up
+                    category = after_view if after_view else "All Ages"
+            
+            events.append({
+                'date': date,
+                'day': day,
+                'time': time,
+                'location': library_name,
+                'event': title,
+                'age': category,
+                'link': full_url
+            })
         
-        for event_div in soup.find_all('div', class_='spl-component-event-list-item'):
-            try:
-                title_elem = event_div.find('h2')
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                link_elem = title_elem.find('a')
-                link = 'https://www.ssjcpl.org' + link_elem['href'] if link_elem and 'href' in link_elem.attrs else url
-                
-                date_elem = event_div.find('div', class_='date')
-                time_elem = event_div.find('div', class_='time')
-                category_elem = event_div.find('div', class_='category')
-                
-                date_str = date_elem.get_text(strip=True) if date_elem else 'TBD'
-                time_str = time_elem.get_text(strip=True) if time_elem else 'All day'
-                category = category_elem.get_text(strip=True) if category_elem else 'All Ages'
-                
-                events.append({
-                    'date': date_str,
-                    'time': time_str,
-                    'location': 'Mountain House Branch Library',
-                    'title': title,
-                    'link': link,
-                    'category': category,
-                    'source': 'Library'
-                })
-            except Exception as e:
-                continue
-                
-    except Exception as e:
-        print(f"Error fetching Mountain House Library events: {e}")
-    
-    return events
-
-def get_lathrop_library_events():
-    """Scrape Lathrop Branch Library events"""
-    events = []
-    try:
-        url = "https://www.ssjcpl.org/events-services/events-calendar/lathrop"
-        response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
+        return events
         
-        for event_div in soup.find_all('div', class_='spl-component-event-list-item'):
-            try:
-                title_elem = event_div.find('h2')
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                link_elem = title_elem.find('a')
-                link = 'https://www.ssjcpl.org' + link_elem['href'] if link_elem and 'href' in link_elem.attrs else url
-                
-                date_elem = event_div.find('div', class_='date')
-                time_elem = event_div.find('div', class_='time')
-                category_elem = event_div.find('div', class_='category')
-                
-                date_str = date_elem.get_text(strip=True) if date_elem else 'TBD'
-                time_str = time_elem.get_text(strip=True) if time_elem else 'All day'
-                category = category_elem.get_text(strip=True) if category_elem else 'All Ages'
-                
-                events.append({
-                    'date': date_str,
-                    'time': time_str,
-                    'location': 'Lathrop Branch Library',
-                    'title': title,
-                    'link': link,
-                    'category': category,
-                    'source': 'Library'
-                })
-            except Exception as e:
-                continue
-                
     except Exception as e:
-        print(f"Error fetching Lathrop Library events: {e}")
-    
-    return events
+        print(f"Error scraping {library_name}: {str(e)}")
+        return []
 
-def get_home_depot_events():
-    """Generate Home Depot Kids Workshop events"""
-    events = []
-    # First Saturday of each month at 9 AM
-    base_date = datetime(2026, 2, 7)  # Feb 7, 2026
-    months = [2, 3, 4, 5, 6]  # Feb through Jun
+
+def generate_home_depot_kids_workshops():
+    """Generate Home Depot Kids Workshop events (first Saturday of each month)"""
+    from datetime import datetime, timedelta
     
-    for month in months:
-        # First Saturday of each month
-        first_day = datetime(2026, month, 1)
-        # Find first Saturday
+    events = []
+    
+    # Generate events for next 6 months
+    current_date = datetime.now()
+    
+    for month_offset in range(6):
+        # Calculate the target month
+        target_month = current_date.month + month_offset
+        target_year = current_date.year
+        
+        # Handle year rollover
+        while target_month > 12:
+            target_month -= 12
+            target_year += 1
+        
+        # Find first Saturday of the month
+        first_day = datetime(target_year, target_month, 1)
+        
+        # Calculate days until Saturday (5 = Saturday in weekday())
         days_until_saturday = (5 - first_day.weekday()) % 7
-        if days_until_saturday == 0 and first_day.weekday() != 5:
+        if days_until_saturday == 0 and first_day.day > 1:
             days_until_saturday = 7
-        event_date = first_day + timedelta(days=days_until_saturday)
+        
+        first_saturday = first_day + timedelta(days=days_until_saturday)
+        
+        # Skip if this date is in the past
+        if first_saturday < current_date.replace(hour=0, minute=0, second=0, microsecond=0):
+            continue
+        
+        # Format date as "Mon DD"
+        month_abbr = first_saturday.strftime("%b")
+        day_num = first_saturday.strftime("%-d")  # Remove leading zero
+        day_abbr = first_saturday.strftime("%a")
         
         events.append({
-            'date': event_date.strftime('%b %d'),
+            'date': f"{month_abbr} {day_num}",
+            'day': day_abbr,
             'time': '9:00 AM - 10:00 AM',
             'location': 'Home Depot Tracy',
-            'title': 'Kids Workshop - Free DIY Project',
-            'link': 'https://www.homedepot.com/workshops/kids-workshops',
-            'category': 'Children',
-            'source': 'Home Depot'
+            'event': 'Kids Workshop - Free DIY Project',
+            'age': 'Children',
+            'link': 'https://www.homedepot.com/workshops/kids-workshops'
         })
     
     return events
 
-def get_ksb_skate_events():
-    """Generate KSB Skate events at Tracy Veterans Park"""
+
+def generate_ksb_skate_dojo_events():
+    """Generate KSB Skate Dojo events - 4 specific Sundays in January 2026"""
     events = []
-    # Sunday afternoons in January 2026
-    january_sundays = [
-        datetime(2026, 1, 4),
-        datetime(2026, 1, 11),
-        datetime(2026, 1, 18),
-        datetime(2026, 1, 25)
+    
+    # Only these 4 specific dates in January 2026
+    january_dates = [
+        datetime(2026, 1, 4),   # Jan 4 (Sun)
+        datetime(2026, 1, 11),  # Jan 11 (Sun)
+        datetime(2026, 1, 18),  # Jan 18 (Sun)
+        datetime(2026, 1, 25),  # Jan 25 (Sun)
     ]
     
-    for sunday in january_sundays:
-        events.append({
-            'date': sunday.strftime('%b %d').replace(' 0', ' '),
-            'time': '3:00 PM - 4:00 PM',
-            'location': 'Tracy Veterans Park',
-            'title': 'aariv Sawhney - KSB Skate Session',
-            'link': 'https://www.ksbskatedojo.com/',
-            'category': 'Children',
-            'source': 'KSB Skate'
-        })
+    current_date = datetime.now()
     
-    return events
-
-def get_omca_events():
-    """Generate Oakland Museum of California First Sunday events"""
-    events = []
-    # First Sunday of each month
-    months = [1, 2, 3, 4, 5, 6]
-    
-    for month in months:
-        first_sunday = datetime(2026, month, 1)
-        # Find first Sunday
-        days_until_sunday = (6 - first_sunday.weekday()) % 7
-        if days_until_sunday == 0 and first_sunday.weekday() != 6:
-            days_until_sunday = 7
-        event_date = first_sunday + timedelta(days=days_until_sunday)
+    for event_date in january_dates:
+        # Skip if this date is in the past
+        if event_date < current_date.replace(hour=0, minute=0, second=0, microsecond=0):
+            continue
+        
+        month_abbr = event_date.strftime("%b")
+        day_num = event_date.strftime("%-d")
+        day_abbr = event_date.strftime("%a")
         
         events.append({
-            'date': event_date.strftime('%b %d').replace(' 0', ' '),
-            'time': '10:00 AM - 5:00 PM',
-            'location': 'Oakland Museum of CA',
-            'title': 'First Sunday Free Admission',
-            'link': 'https://museumca.org/visit',
-            'category': 'All Ages',
-            'source': 'OMCA'
+            'date': f"{month_abbr} {day_num}",
+            'day': day_abbr,
+            'time': '3:00 PM - 4:00 PM',
+            'location': 'Tracy Veterans Park',
+            'event': 'aariv Sawhney - KSB Skate Session',
+            'age': 'Children',
+            'link': 'https://www.ksbskatedojo.com/'
         })
     
     return events
 
-def get_eventbrite_sf_events():
-    """Scrape Eventbrite for SF area family events"""
+
+def generate_omca_first_sunday():
+    """Generate Oakland Museum of California (OMCA) First Sunday Free Admission events for next 6 months"""
     events = []
+    current_date = datetime.now()
+    
+    # Generate for next 6 months
+    for month_offset in range(6):
+        # Calculate the target month
+        target_month = current_date.month + month_offset
+        target_year = current_date.year
+        
+        # Handle year rollover
+        while target_month > 12:
+            target_month -= 12
+            target_year += 1
+        
+        # Get first day of the month
+        first_day = datetime(target_year, target_month, 1)
+        
+        # Calculate first Sunday (0 = Monday, 6 = Sunday)
+        days_until_sunday = (6 - first_day.weekday()) % 7
+        if days_until_sunday == 0 and first_day.day != 1:
+            days_until_sunday = 7
+        first_sunday = first_day + timedelta(days=days_until_sunday)
+        
+        # Skip if this date is in the past
+        if first_sunday < current_date.replace(hour=0, minute=0, second=0, microsecond=0):
+            continue
+        
+        # Format date as "Mon DD"
+        month_abbr = first_sunday.strftime("%b")
+        day_num = first_sunday.strftime("%-d")  # Remove leading zero
+        day_abbr = first_sunday.strftime("%a")
+        
+        events.append({
+            'date': f"{month_abbr} {day_num}",
+            'day': day_abbr,
+            'time': '10:00 AM - 5:00 PM',
+            'location': 'Oakland Museum of CA',
+            'event': 'First Sunday Free Admission',
+            'age': 'All Ages',
+            'link': 'https://museumca.org/visit'
+        })
+    
+    return events
+
+
+def scrape_eventbrite_organizer(organizer_url):
+    """Scrape events from an Eventbrite organizer page."""
+    events = []
+    
     try:
-        # Search for "san francisco bay area family events"
-        url = "https://www.eventbrite.com/d/ca--san-francisco/family--events/"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
+        response = requests.get(organizer_url, headers=headers, timeout=15)
+        response.raise_for_status()
         
-        # Find event cards
-        for event_card in soup.find_all('div', class_='discover-search-desktop-card')[:5]:
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Method 1: Look for JSON-LD structured data
+        json_ld_scripts = soup.find_all('script', type='application/ld+json')
+        
+        for script in json_ld_scripts:
             try:
-                title_elem = event_card.find('h2')
-                if not title_elem:
-                    continue
+                data = json.loads(script.string)
                 
-                title = title_elem.get_text(strip=True)
+                # Handle both single events and event lists
+                event_list = []
+                if isinstance(data, list):
+                    event_list = data
+                elif isinstance(data, dict):
+                    if data.get('@type') == 'Event':
+                        event_list = [data]
+                    elif 'event' in data:
+                        event_list = data['event'] if isinstance(data['event'], list) else [data['event']]
                 
-                # Get link
-                link_elem = event_card.find('a', href=True)
-                link = link_elem['href'] if link_elem else url
-                
-                # Get date and location
-                date_elem = event_card.find('p', string=re.compile(r'(Mon|Tue|Wed|Thu|Fri|Sat|Sun)'))
-                location_elem = event_card.find('p', string=re.compile(r'(San Francisco|SF|Bay Area)'))
-                
-                date_str = date_elem.get_text(strip=True) if date_elem else 'TBD'
-                location_str = location_elem.get_text(strip=True) if location_elem else 'Thrive City (SF)'
-                
-                events.append({
-                    'date': date_str,
-                    'time': 'TBD',
-                    'location': location_str,
-                    'title': title,
-                    'link': link,
-                    'category': 'All Ages',
-                    'source': 'Eventbrite'
-                })
-            except Exception:
+                for event in event_list:
+                    if isinstance(event, dict) and event.get('@type') == 'Event':
+                        parsed_event = parse_event_from_json_ld(event)
+                        if parsed_event:
+                            events.append(parsed_event)
+                            
+            except (json.JSONDecodeError, KeyError, TypeError):
                 continue
-                
+        
+        # Method 2: Look for event data in JavaScript variables
+        script_tags = soup.find_all('script')
+        for script in script_tags:
+            if script.string and 'window.__SERVER_DATA__' in script.string:
+                try:
+                    match = re.search(r'window\.__SERVER_DATA__\s*=\s*({.+?});', script.string, re.DOTALL)
+                    if match:
+                        server_data = json.loads(match.group(1))
+                        extracted_events = extract_events_from_server_data(server_data)
+                        events.extend(extracted_events)
+                except:
+                    continue
+        
+        print(f"Found {len(events)} Eventbrite events")
+        
     except Exception as e:
-        print(f"Error fetching Eventbrite events: {e}")
-        # Add a placeholder event
-        events.append({
-            'date': 'Mar 22',
-            'time': '10 PM - 12 AM',
-            'location': 'Thrive City',
-            'title': 'Lucha Libre Wrestling Night',
-            'link': 'https://www.eventbrite.com/e/lucha-libre-wrestling-night-tickets-1975640975340',
-            'category': 'All Ages',
-            'source': 'Eventbrite'
-        })
+        print(f"Error scraping Eventbrite: {e}")
     
     return events
 
-def parse_date_for_sorting(date_str):
-    """Parse date string and return sortable datetime object"""
+
+def parse_event_from_json_ld(event_data):
+    """Parse event from JSON-LD structured data."""
     try:
-        # Handle "Jan 04" or "Jan 4" format
-        current_year = datetime.now().year
-        date_str_clean = date_str.strip()
+        name = event_data.get('name', '')
+        start_date_str = event_data.get('startDate', '')
+        if not start_date_str:
+            return None
+            
+        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
         
-        # Parse the date
-        parsed_date = datetime.strptime(date_str_clean, '%b %d')
-        parsed_date = parsed_date.replace(year=current_year)
+        end_date_str = event_data.get('endDate', '')
+        end_date = None
+        if end_date_str:
+            end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
         
-        # If date has already passed this year, assume it's next year
-        if parsed_date < datetime.now():
-            parsed_date = parsed_date.replace(year=current_year + 1)
+        location_data = event_data.get('location', {})
+        if isinstance(location_data, dict):
+            location_name = location_data.get('name', 'Thrive City')
+        else:
+            location_name = 'Thrive City'
         
-        return parsed_date
-    except:
-        return datetime(2099, 12, 31)  # Far future for unparseable dates
+        url = event_data.get('url', '')
+        
+        formatted_event = {
+            'date': start_date.strftime('%b %-d'),
+            'day': start_date.strftime('%a'),
+            'time': format_time_range(start_date, end_date),
+            'location': location_name,
+            'event': name,
+            'age': 'All Ages',
+            'link': url
+        }
+        
+        return formatted_event
+        
+    except Exception as e:
+        print(f"Error parsing event: {e}")
+        return None
+
+
+def extract_events_from_server_data(data, events=None):
+    """Recursively search for event data in server data structure."""
+    if events is None:
+        events = []
+    
+    if isinstance(data, dict):
+        if 'name' in data and 'start' in data and 'url' in data:
+            try:
+                parsed = parse_event_from_server_data(data)
+                if parsed:
+                    events.append(parsed)
+            except:
+                pass
+        
+        for value in data.values():
+            extract_events_from_server_data(value, events)
+            
+    elif isinstance(data, list):
+        for item in data:
+            extract_events_from_server_data(item, events)
+    
+    return events
+
+
+def parse_event_from_server_data(event_data):
+    """Parse event from server data structure."""
+    try:
+        name = event_data.get('name', {})
+        if isinstance(name, dict):
+            name = name.get('text', '')
+        
+        start_data = event_data.get('start', {})
+        start_str = start_data.get('utc', '') or start_data.get('local', '')
+        if not start_str:
+            return None
+            
+        start_date = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+        
+        end_data = event_data.get('end', {})
+        end_str = end_data.get('utc', '') or end_data.get('local', '')
+        end_date = None
+        if end_str:
+            end_date = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+        
+        url = event_data.get('url', '')
+        
+        formatted_event = {
+            'date': start_date.strftime('%b %-d'),
+            'day': start_date.strftime('%a'),
+            'time': format_time_range(start_date, end_date),
+            'location': 'Thrive City',
+            'event': name,
+            'age': 'All Ages',
+            'link': url
+        }
+        
+        return formatted_event
+        
+    except Exception:
+        return None
+
+
+def format_time_range(start_date, end_date):
+    """Format time range for display."""
+    start_time = start_date.strftime('%-I:%M %p').replace(':00', '')
+    
+    if end_date:
+        end_time = end_date.strftime('%-I:%M %p').replace(':00', '')
+        return f"{start_time} - {end_time}"
+    else:
+        return start_time
+
+
+def scrape_thrive_city_events():
+    """Scrape Thrive City events from Eventbrite."""
+    url = "https://www.eventbrite.com/o/thrive-city-36308481623"
+    events = scrape_eventbrite_organizer(url)
+    
+    # Filter to only future events within 3 months
+    now = datetime.now()
+    three_months_from_now = now + timedelta(days=90)  # Approximately 3 months
+    
+    future_events = []
+    for event in events:
+        try:
+            # Reconstruct the datetime for filtering
+            date_str = event['date']
+            month_map = {
+                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+            }
+            parts = date_str.split()
+            if len(parts) == 2:
+                month = month_map.get(parts[0], 12)
+                day = int(parts[1])
+                year = 2025 if month == 12 else 2026
+                event_date = datetime(year, month, day)
+                
+                # Only include events that are:
+                # 1. In the future (>= now)
+                # 2. Within 3 months from now (<= three_months_from_now)
+                if now <= event_date <= three_months_from_now:
+                    future_events.append(event)
+        except:
+            # If we can't parse the date, skip the event
+            pass
+    
+    return future_events
+
+
+def parse_date(date_str):
+    """Parse date string - SIMPLIFIED"""
+    return {
+        'parsed_date': datetime.now(),  # Fallback
+        'date_display': "TBD",
+        'day_display': "",
+        'time_display': "See event page",
+        'is_weekend': False
+    }
+
+
+def sort_events(events):
+    """Sort events by date (asc), time (asc), then location priority"""
+    from datetime import datetime
+    
+    # Location priority mapping
+    location_priority = {
+        'Tracy Branch Library': 1,
+        'Mountain House Branch Library': 2,
+        'Manteca Branch Library': 3,
+        'Lathrop Branch Library': 4,
+        'Home Depot Tracy': 5,
+        'Tracy Veterans Park': 6,
+        'Oakland Museum of CA': 7,
+        'Thrive City': 8
+    }
+    
+    def parse_sort_key(event):
+        # Parse date (Dec 25 -> 2025-12-25)
+        date_str = event.get('date', 'TBD')
+        parsed_date = datetime(2099, 12, 31)  # Default far future for TBD
+        
+        if date_str != 'TBD':
+            try:
+                # Map month abbreviations
+                month_map = {
+                    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                }
+                parts = date_str.split()
+                if len(parts) == 2:
+                    month_abbr = parts[0]
+                    day = int(parts[1])
+                    month = month_map.get(month_abbr, 12)
+                    
+                    # Smart year assignment
+                    # We're currently in Dec 2025, so:
+                    # - Dec events -> 2025
+                    # - Jan-Nov events -> 2026 (future)
+                    if month == 12:
+                        year = 2025
+                    else:
+                        year = 2026
+                    
+                    parsed_date = datetime(year, month, day)
+            except:
+                pass
+        
+        # Parse time (11:00 AM -> sortable)
+        time_str = event.get('time', 'All day')
+        time_sort = 9999  # Default for "All day"
+        
+        if time_str != 'All day':
+            try:
+                # Extract first time (start time) from "11:00 AM - 12:00 PM"
+                time_parts = time_str.split('-')[0].strip()
+                time_obj = datetime.strptime(time_parts, '%I:%M %p')
+                time_sort = time_obj.hour * 60 + time_obj.minute
+            except:
+                pass
+        
+        # Get location priority
+        location = event.get('location', '')
+        loc_priority = location_priority.get(location, 999)
+        
+        return (parsed_date, time_sort, loc_priority)
+    
+    return sorted(events, key=parse_sort_key)
+
+
+def scrape_all_events():
+    """Scrape all library events"""
+    print("Starting library event scraping...")
+    all_events = []
+    
+    # Only SSJCPL libraries (San Joaquin County)
+    libraries = {
+        'Tracy Branch Library': ('ssjcpl', 'https://www.ssjcpl.org/your-library/locations/tracy'),
+        'Mountain House Branch Library': ('ssjcpl', 'https://www.ssjcpl.org/your-library/locations/mountain-house'),
+        'Manteca Branch Library': ('ssjcpl', 'https://www.ssjcpl.org/your-library/locations/manteca'),
+        'Lathrop Branch Library': ('ssjcpl', 'https://www.ssjcpl.org/your-library/locations/lathrop'),
+    }
+    
+    for library_name, (lib_type, url) in libraries.items():
+        print(f"Scraping {library_name}...")
+        
+        if lib_type == 'ssjcpl':
+            events = scrape_ssjcpl_events(url, library_name)
+        else:
+            events = []
+        
+        all_events.extend(events)
+        print(f"  Found {len(events)} events")
+    
+    # Add Home Depot Kids Workshops (first Saturday of each month)
+    print("Generating Home Depot Kids Workshop events...")
+    home_depot_events = generate_home_depot_kids_workshops()
+    all_events.extend(home_depot_events)
+    print(f"  Generated {len(home_depot_events)} Home Depot events")
+    
+    # Add KSB Skate Dojo Sunday events
+    print("Generating KSB Skate Dojo events...")
+    ksb_events = generate_ksb_skate_dojo_events()
+    all_events.extend(ksb_events)
+    print(f"  Generated {len(ksb_events)} KSB Skate events")
+    
+    # Add Oakland Museum of California First Sunday Free Admission
+    print("Generating OMCA First Sunday events...")
+    omca_events = generate_omca_first_sunday()
+    all_events.extend(omca_events)
+    print(f"  Generated {len(omca_events)} OMCA events")
+    
+    # Add Thrive City events from Eventbrite
+    print("Scraping Thrive City events from Eventbrite...")
+    try:
+        thrive_city_events = scrape_thrive_city_events()
+        all_events.extend(thrive_city_events)
+        print(f"  Found {len(thrive_city_events)} Thrive City events")
+    except Exception as e:
+        print(f"  Error scraping Thrive City: {e}")
+    
+    # Sort events by date, time, and location
+    all_events = sort_events(all_events)
+    print(f"\n✅ Total events: {len(all_events)} (sorted by date, time, location)")
+    
+    return all_events
+
 
 def generate_html(events):
-    """Generate HTML website with proper date attributes for filtering"""
+    """Generate HTML website"""
     
-    # Sort events by date
-    events.sort(key=lambda x: parse_date_for_sorting(x['date']))
+    current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p PST")
     
-    # Get unique locations for filter
-    locations = sorted(set(event['location'] for event in events))
-    sources = sorted(set(event['source'] for event in events))
+    total_events = len(events)
     
-    # Get current timestamp
-    now = datetime.now().strftime('%B %d, %Y at %I:%M %p PST')
-    
-    # Build HTML
-    html = f'''<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📚 Local Family Events</title>
+    <title>📚 Local Family Events - Tracy Area</title>
     <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            line-height: 1.6;
-            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
             min-height: 100vh;
+            padding: 20px;
         }}
-        
         .container {{
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
             overflow: hidden;
         }}
-        
-        header {{
+        .header {{
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 40px;
+            padding: 30px;
             text-align: center;
         }}
-        
-        h1 {{
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        }}
-        
-        .subtitle {{
-            opacity: 0.95;
-            font-size: 1.1em;
-        }}
-        
+        .header h1 {{ font-size: 2.5em; margin-bottom: 10px; }}
+        .header p {{ opacity: 0.9; font-size: 1.1em; }}
         .stats {{
-            background: rgba(255,255,255,0.2);
-            display: inline-block;
-            padding: 15px 30px;
-            border-radius: 50px;
-            margin-top: 20px;
-            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+            flex-wrap: wrap;
         }}
-        
-        .stats-number {{
+        .stat-card {{
+            text-align: center;
+            padding: 15px;
+            min-width: 150px;
+        }}
+        .stat-number {{
             font-size: 2.5em;
             font-weight: bold;
-            display: block;
-        }}
-        
-        .filters {{
-            padding: 30px 40px;
-            background: #f8f9fa;
-            border-bottom: 2px solid #e9ecef;
-            display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
-            align-items: center;
-        }}
-        
-        .filter-group {{
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            flex: 1;
-            min-width: 200px;
-        }}
-        
-        .filter-group label {{
-            font-weight: 600;
-            color: #495057;
-            font-size: 0.9em;
-        }}
-        
-        select {{
-            padding: 12px 16px;
-            border: 2px solid #dee2e6;
-            border-radius: 10px;
-            font-size: 1em;
-            background: white;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }}
-        
-        select:hover {{
-            border-color: #667eea;
-        }}
-        
-        select:focus {{
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }}
-        
-        .content {{
-            padding: 40px;
-        }}
-        
-        table {{
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            margin-top: 20px;
-        }}
-        
-        thead {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }}
-        
-        th {{
-            padding: 16px;
-            text-align: left;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.85em;
-            letter-spacing: 0.5px;
-        }}
-        
-        tbody tr {{
-            background: white;
-            transition: all 0.3s ease;
-            border-bottom: 1px solid #e9ecef;
-        }}
-        
-        tbody tr:hover {{
-            background: #f8f9fa;
-            transform: translateX(5px);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }}
-        
-        td {{
-            padding: 16px;
-        }}
-        
-        td:first-child {{
-            font-weight: 600;
             color: #667eea;
         }}
-        
-        .day-badge {{
-            display: inline-block;
-            padding: 4px 12px;
-            background: #e7f3ff;
-            color: #0066cc;
-            border-radius: 20px;
-            font-size: 0.85em;
+        .stat-label {{
+            color: #666;
+            margin-top: 5px;
+        }}
+        .content {{
+            padding: 30px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }}
+        th {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
             font-weight: 600;
         }}
-        
-        .category-badge {{
-            display: inline-block;
-            padding: 4px 12px;
-            background: #f0f0f0;
-            border-radius: 20px;
-            font-size: 0.85em;
-            margin-right: 4px;
+        td {{
+            padding: 12px 15px;
+            border-bottom: 1px solid #e0e0e0;
         }}
-        
-        a {{
+        tr:hover {{ background-color: #f8f9fa; }}
+        .event-link {{
             color: #667eea;
             text-decoration: none;
             font-weight: 500;
-            transition: color 0.3s ease;
         }}
-        
-        a:hover {{
-            color: #764ba2;
+        .event-link:hover {{
             text-decoration: underline;
         }}
-        
-        footer {{
+        .age-badge {{
+            display: inline-block;
+            padding: 4px 12px;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }}
+        .footer {{
             text-align: center;
-            padding: 30px;
+            padding: 20px;
+            color: #666;
             background: #f8f9fa;
-            color: #6c757d;
-            font-size: 0.9em;
+            border-top: 1px solid #e0e0e0;
         }}
-        
-        .location-cell {{
-            color: #6c757d;
-            font-size: 0.95em;
+        h2 {{
+            color: #333;
+            margin: 30px 0 20px 0;
+            font-size: 1.8em;
+            border-left: 4px solid #667eea;
+            padding-left: 15px;
         }}
-        
+        .filter-container {{
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }}
+        .filter-label {{
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1em;
+        }}
+        .filter-select {{
+            padding: 10px 20px;
+            font-size: 1em;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            background: white;
+            color: #333;
+            cursor: pointer;
+            min-width: 250px;
+            transition: all 0.3s;
+        }}
+        .filter-select:hover {{
+            border-color: #764ba2;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }}
+        .filter-select:focus {{
+            outline: none;
+            border-color: #764ba2;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }}
         @media (max-width: 768px) {{
-            body {{
-                padding: 10px;
-            }}
-            
-            .container {{
-                border-radius: 10px;
-            }}
-            
-            header {{
-                padding: 20px;
-            }}
-            
-            h1 {{
-                font-size: 1.8em;
-            }}
-            
-            .filters {{
-                padding: 20px;
-                flex-direction: column;
-            }}
-            
-            .content {{
-                padding: 20px;
-                overflow-x: auto;
-            }}
-            
-            table {{
-                font-size: 0.9em;
-            }}
-            
-            th, td {{
-                padding: 10px;
-            }}
+            .header h1 {{ font-size: 1.8em; }}
+            table {{ font-size: 0.9em; }}
+            th, td {{ padding: 10px 8px; }}
+            .filter-select {{ min-width: 100%; }}
         }}
     </style>
 </head>
 <body>
     <div class="container">
-        <header>
+        <div class="header">
             <h1>📚 Local Family Events</h1>
-            <p class="subtitle">Libraries • Home Depot • KSB Skate • OMCA • Thrive City | Tracy • San Jose • Oakland • SF</p>
-            <div class="stats">
-                <span class="stats-number">{len(events)}</span>
-                Total Events
-            </div>
-        </header>
+            <p>Libraries • Home Depot • KSB Skate • OMCA • Thrive City | Tracy • San Jose • Oakland • SF</p>
+        </div>
         
-        <div class="filters">
-            <div class="filter-group">
-                <label for="locationFilter">📍 Filter by Location:</label>
-                <select id="locationFilter">
-                    <option value="all">All Locations</option>
-'''
-    
-    for location in locations:
-        html += f'                    <option value="{location}">{location}</option>\n'
-    
-    html += '''                </select>
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">{total_events}</div>
+                <div class="stat-label">Total Events</div>
             </div>
+        </div>
+        
+        <div class="filter-container">
+            <label class="filter-label" for="locationFilter">📍 Filter by Location:</label>
+            <select id="locationFilter" class="filter-select" onchange="filterEvents()">
+                <option value="all">All Locations</option>
+                <option value="Tracy Branch Library">Tracy Branch Library</option>
+                <option value="Mountain House Branch Library">Mountain House Branch Library</option>
+                <option value="Manteca Branch Library">Manteca Branch Library</option>
+                <option value="Lathrop Branch Library">Lathrop Branch Library</option>
+                <option value="Home Depot Tracy">Home Depot Tracy</option>
+                <option value="Tracy Veterans Park">Tracy Veterans Park</option>
+                <option value="Oakland Museum of CA">Oakland Museum of CA</option>
+                <option value="Thrive City">Thrive City (SF)</option>
+            </select>
             
-            <div class="filter-group">
-                <label for="dateFilter">📅 Filter by Date:</label>
-                <select id="dateFilter">
-                    <option value="all">All Dates</option>
-                    <option value="today">Today</option>
-                    <option value="tomorrow">Tomorrow</option>
-                    <option value="week">This Week</option>
-                    <option value="nextweek">Next Week</option>
-                    <option value="month">This Month</option>
-                    <option value="nextmonth">Next Month</option>
-                </select>
-            </div>
+            <label class="filter-label" for="dateFilter" style="margin-left: 20px;">📅 Filter by Date:</label>
+            <select id="dateFilter" class="filter-select" onchange="filterEvents()">
+                <option value="all">All Dates</option>
+                <option value="today">Today</option>
+                <option value="tomorrow">Tomorrow</option>
+                <option value="this-week">This Week</option>
+                <option value="next-week">Next Week</option>
+                <option value="this-month">This Month</option>
+                <option value="next-month">Next Month</option>
+            </select>
         </div>
         
         <div class="content">
             <h2>📅 All Events</h2>
-            <table id="eventsTable">
+            <table>
                 <thead>
                     <tr>
                         <th>Date</th>
@@ -635,153 +767,154 @@ def generate_html(events):
                     </tr>
                 </thead>
                 <tbody>
-'''
+"""
     
-    # Add events to table with proper data attributes
     for event in events:
-        # Parse date for data attribute (YYYY-MM-DD format)
-        try:
-            event_datetime = parse_date_for_sorting(event['date'])
-            iso_date = event_datetime.strftime('%Y-%m-%d')
-            day_name = event_datetime.strftime('%a')
-        except:
-            iso_date = '2099-12-31'
-            day_name = 'TBD'
-        
-        html += f'''                    <tr data-location="{event['location']}" data-source="{event['source']}" data-date="{iso_date}">
+        html += f"""
+                    <tr data-location="{event['location']}" data-date="{event['date']}">
                         <td>{event['date']}</td>
-                        <td><span class="day-badge">{day_name}</span></td>
+                        <td>{event['day']}</td>
                         <td>{event['time']}</td>
-                        <td class="location-cell">{event['location']}</td>
-                        <td><a href="{event['link']}" target="_blank">{event['title']}</a></td>
-                        <td><span class="category-badge">{event['category']}</span></td>
+                        <td>{event['location']}</td>
+                        <td><a href="{event['link']}" target="_blank" class="event-link">{event['event']}</a></td>
+                        <td><span class="age-badge">{event['age']}</span></td>
                     </tr>
-'''
+"""
     
-    html += f'''                </tbody>
+    html += f"""
+                </tbody>
             </table>
         </div>
         
-        <footer>
-            <p>Last updated: {now}</p>
+        <div class="footer">
+            <p>Last updated: {current_time}</p>
             <p>Auto-updates daily • Data from library websites</p>
-        </footer>
+        </div>
     </div>
     
     <script>
-        function applyFilters() {{
-            const selectedDate = document.getElementById('dateFilter').value;
-            const selectedLocation = document.getElementById('locationFilter').value;
-            const rows = document.querySelectorAll('#eventsTable tbody tr');
+        function filterEvents() {{
+            const locationFilter = document.getElementById('locationFilter').value;
+            const dateFilter = document.getElementById('dateFilter').value;
+            const rows = document.querySelectorAll('tbody tr');
             
-            // Get today's date at midnight
+            // Get current date info for date filtering
             const now = new Date();
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            
-            // Calculate date ranges
             const tomorrow = new Date(today);
             tomorrow.setDate(tomorrow.getDate() + 1);
             
-            const endOfWeek = new Date(today);
-            endOfWeek.setDate(today.getDate() + (7 - today.getDay()));
+            // Calculate week boundaries
+            const thisWeekStart = new Date(today);
+            const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
+            thisWeekStart.setDate(today.getDate() - dayOfWeek); // Start of this week (Sunday)
+            const thisWeekEnd = new Date(thisWeekStart);
+            thisWeekEnd.setDate(thisWeekStart.getDate() + 6); // End of this week (Saturday)
             
-            const startOfNextWeek = new Date(endOfWeek);
-            startOfNextWeek.setDate(startOfNextWeek.getDate() + 1);
-            const endOfNextWeek = new Date(startOfNextWeek);
-            endOfNextWeek.setDate(endOfNextWeek.getDate() + 6);
+            const nextWeekStart = new Date(thisWeekEnd);
+            nextWeekStart.setDate(thisWeekEnd.getDate() + 1);
+            const nextWeekEnd = new Date(nextWeekStart);
+            nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
             
-            const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            // Calculate month boundaries
+            const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
             
-            const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-            const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+            const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
             
+            let visibleCount = 0;
             rows.forEach(row => {{
                 const location = row.getAttribute('data-location');
-                const dateStr = row.getAttribute('data-date'); // YYYY-MM-DD format
-                
-                // Parse event date
-                const eventDate = new Date(dateStr);
-                
-                // Date filter logic
-                let dateMatch = true;
-                if (selectedDate === 'today') {{
-                    dateMatch = eventDate.toDateString() === today.toDateString();
-                }} else if (selectedDate === 'tomorrow') {{
-                    dateMatch = eventDate.toDateString() === tomorrow.toDateString();
-                }} else if (selectedDate === 'week') {{
-                    dateMatch = eventDate >= today && eventDate <= endOfWeek;
-                }} else if (selectedDate === 'nextweek') {{
-                    dateMatch = eventDate >= startOfNextWeek && eventDate <= endOfNextWeek;
-                }} else if (selectedDate === 'month') {{
-                    dateMatch = eventDate >= today && eventDate <= endOfMonth;
-                }} else if (selectedDate === 'nextmonth') {{
-                    dateMatch = eventDate >= startOfNextMonth && eventDate <= endOfNextMonth;
-                }}
+                const dateStr = row.getAttribute('data-date');
                 
                 // Location filter
-                const locationMatch = selectedLocation === 'all' || location === selectedLocation;
+                const locationMatch = locationFilter === 'all' || location === locationFilter;
                 
-                // Show/hide row
-                if (dateMatch && locationMatch) {{
+                // Date filter
+                let dateMatch = true;
+                if (dateFilter !== 'all' && dateStr) {{
+                    const eventDate = parseDateString(dateStr);
+                    
+                    if (eventDate) {{
+                        switch(dateFilter) {{
+                            case 'today':
+                                dateMatch = eventDate.getTime() === today.getTime();
+                                break;
+                            case 'tomorrow':
+                                dateMatch = eventDate.getTime() === tomorrow.getTime();
+                                break;
+                            case 'this-week':
+                                dateMatch = eventDate >= thisWeekStart && eventDate <= thisWeekEnd;
+                                break;
+                            case 'next-week':
+                                dateMatch = eventDate >= nextWeekStart && eventDate <= nextWeekEnd;
+                                break;
+                            case 'this-month':
+                                dateMatch = eventDate >= thisMonthStart && eventDate <= thisMonthEnd;
+                                break;
+                            case 'next-month':
+                                dateMatch = eventDate >= nextMonthStart && eventDate <= nextMonthEnd;
+                                break;
+                        }}
+                    }}
+                }}
+                
+                // Show row if both filters match
+                if (locationMatch && dateMatch) {{
                     row.style.display = '';
+                    visibleCount++;
                 }} else {{
                     row.style.display = 'none';
                 }}
             }});
+            
+            console.log(`Showing ${{visibleCount}} events`);
         }}
         
-        // Attach event listeners
-        document.getElementById('dateFilter').addEventListener('change', applyFilters);
-        document.getElementById('locationFilter').addEventListener('change', applyFilters);
+        function parseDateString(dateStr) {{
+            // Parse "Dec 25" format to Date object
+            const months = {{
+                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+                'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+            }};
+            
+            const parts = dateStr.split(' ');
+            if (parts.length !== 2) return null;
+            
+            const month = months[parts[0]];
+            const day = parseInt(parts[1]);
+            
+            if (month === undefined || isNaN(day)) return null;
+            
+            // Determine year (Dec 2025, Jan-Nov 2026)
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            
+            let year;
+            if (month === 11) {{ // December
+                year = currentYear; // December 2025
+            }} else {{ // Jan-Nov
+                year = currentYear + 1; // 2026
+            }}
+            
+            return new Date(year, month, day);
+        }}
     </script>
 </body>
-</html>'''
+</html>
+"""
     
     return html
 
-def main():
-    """Main function to generate the website"""
-    print("Fetching events from all sources...")
+
+if __name__ == "__main__":
+    events = scrape_all_events()
+    html = generate_html(events)
     
-    all_events = []
-    
-    # Get events from all sources
-    print("- Tracy Library...")
-    all_events.extend(get_tracy_library_events())
-    
-    print("- Manteca Library...")
-    all_events.extend(get_manteca_library_events())
-    
-    print("- Mountain House Library...")
-    all_events.extend(get_mountain_house_library_events())
-    
-    print("- Lathrop Library...")
-    all_events.extend(get_lathrop_library_events())
-    
-    print("- Home Depot...")
-    all_events.extend(get_home_depot_events())
-    
-    print("- KSB Skate...")
-    all_events.extend(get_ksb_skate_events())
-    
-    print("- OMCA...")
-    all_events.extend(get_omca_events())
-    
-    print("- Eventbrite...")
-    all_events.extend(get_eventbrite_sf_events())
-    
-    print(f"\nTotal events found: {len(all_events)}")
-    
-    # Generate HTML
-    print("Generating HTML...")
-    html = generate_html(all_events)
-    
-    # Write to file
+    # Write to current directory (works on GitHub Actions)
     with open('index.html', 'w', encoding='utf-8') as f:
         f.write(html)
     
-    print("✅ Website generated successfully: index.html")
-    print(f"📊 Total events: {len(all_events)}")
-
-if __name__ == "__main__":
-    main()
+    print(f"\n✅ Generated website with {len(events)} events")
+    print(f"📄 File: index.html")
